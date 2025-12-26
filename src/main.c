@@ -13,7 +13,10 @@ int main(int argc, char *argv[]) {
     char input[100];
     if (!fgets(input, 100, stdin))
       break;
-  
+
+    if (!strncmp(input, "exit", 4))
+      break;
+      
     input[strlen(input) - 1] = '\0';
     printf("%s: command not found\n", input);
   }
