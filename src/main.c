@@ -1,18 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char *argv[]) {
   // Flush after every printf
   setbuf(stdout, NULL);
 
-  printf("$ ");
-
-  // stage 2 assumption: everything produces an error, even valid commands
-  // TODO: change this to use actual structured code that works correctly and not just works based on simple assumptions
-  char buf[100]; /* temp variable where the command line goes for now, TODO: FIXIT */
-  scanf("%99s", buf);
-
-  printf("%s: command not found\n", buf);
+  while (1) {
+    printf("$ ");
+    // stage 2/3 assumption: everything produces an error, even valid commands
+    // TODO: change this to use actual structured code that works correctly and not just works based on simple assumptions
+    char input[100];
+    if (!fgets(input, 100, stdin))
+      break;
+  
+    input[strlen(input) - 1] = '\0';
+    printf("%s: command not found\n", buf);
+  }
 
   return 0;
 }
