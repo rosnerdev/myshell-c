@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
       break;
   
     input[strlen(input) - 1] = '\0';
-    printf("%s: command not found\n", buf);
+    printf("%s: command not found\n", input);
   }
 
   return 0;
