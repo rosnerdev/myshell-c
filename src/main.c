@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
 typedef struct {
   char path[256];
@@ -12,8 +13,13 @@ typedef struct {
 
 int is_builtin(const char *str);
 file search_file_in_directory(const char *dir_path, const char *target_filename);
+char **parse_args(char *input);
 
 int main(int argc, char *argv[]) {
+  // Throw argc and argv to avoid warnings from the compiler
+  (void)argc;
+  (void)argv;
+
   // Flush after every printf
   setbuf(stdout, NULL);
 
@@ -30,13 +36,12 @@ int main(int argc, char *argv[]) {
       
     if (!strcmp(input, "exit"))
       break;
-    if (!strncmp(input, "echo", 4) && strlen(input) > 5) {
+    else if (!strncmp(input, "echo", 4) && strlen(input) > 5) {
       command_found = 1;
       const char *rest = strchr(input, ' ') + 1;
       if (rest != NULL)
         puts(rest);
-    }
-    if (!strncmp(input, "type", 4) && strlen(input) > 5) {
+    } else if (!strncmp(input, "type", 4) && strlen(input) > 5) {
       command_found = 1;
       const char *rest = strchr(input, ' ') + 1;
       if (rest != NULL) {
@@ -47,13 +52,11 @@ int main(int argc, char *argv[]) {
           char *path = strdup(path_env);
 
           if (path_env != NULL) {
-            int exists = 0;
             char *tok = strtok(path, ":");
             while (tok != NULL) {
               file result = search_file_in_directory(tok, rest);
 
               if (result.exists) {
-                exists = 1;
                 printf("%s is %s\n", rest, result.path);
                 break;
               }
@@ -67,9 +70,81 @@ int main(int argc, char *argv[]) {
           } else {
             printf("%s: not found\n", rest);
           }
+
+          free(path); // make sure to free the strdup'd string!
         }
       }
+    } else {
+      command_found = 1;
+
+      char *line = strdup(input);
+      // split the arguments
+      char **args = parse_args(line);
+      if (!args) {
+          perror("parse_args");
+          return 1;
+      }
+
+      char *path_env = getenv("PATH");
+      char *path = strdup(path_env);
+
+      int not_found_path = 0;
+
+      if (path_env != NULL) {
+        char *path_tok_saveptr;
+        char *tok = strtok_r(path, ":", &path_tok_saveptr);
+        while (tok != NULL) {
+          file result = search_file_in_directory(tok, args[0]);
+
+          if (result.exists) {
+            break;
+          }
+          
+          tok = strtok_r(NULL, ":", &path_tok_saveptr);
+          
+          if (tok == NULL) {
+            printf("%s: not found\n", args[0]);
+            not_found_path = 1;
+          }
+        }
+      } else {
+        printf("%s: not found\n", args[0]);
+        not_found_path = 1;
+      }
+      free(path);
+
+      if (not_found_path) {
+        free(args);
+        free(line);
+        continue;
+      }
+        
+      pid_t pid = fork();
+    
+      if (pid < 0) {
+          perror("fork");
+          free(args);
+          free(line);
+          return 1;
+      }
+      
+      if (pid == 0) {
+          // Child process
+          execvp(args[0], args);
+          // If execvp returns, it failed
+          perror("execvp");
+          exit(1);
+      } else {
+          // Parent process
+          int status;
+          waitpid(pid, &status, 0);
+      }
+      
+      free(args);
+      free(line);
     }
+
+
     if (!command_found)
       printf("%s: command not found\n", input);
   }
@@ -120,4 +195,19 @@ file search_file_in_directory(const char *dir_path, const char *target_filename)
 
     closedir(dir);
     return result;
+}
+
+char **parse_args(char *input) {
+    char **args = malloc(64 * sizeof(char *));  // Max 64 args
+    if (!args) return NULL;
+    
+    int i = 0;
+    char *token = strtok(input, " \t\n");
+    while (token != NULL && i < 63) {
+        args[i++] = token;
+        token = strtok(NULL, " \t\n");
+    }
+    args[i] = NULL;  // execvp requires NULL-terminated array
+    
+    return args;
 }
