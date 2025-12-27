@@ -109,9 +109,41 @@ int main(int argc, char *argv[]) {
       }
     } else if (!strncmp(input, "cd", 2)) {
       if (args_len > 1) {
-        int chdir_result = chdir(args[1]);
+        const char *path_to_use;
+        char *dir_to_change = NULL;
+        
+        // Check if there's a tilde to expand
+        if (strchr(args[1], '~') != NULL) {
+          dir_to_change = calloc(1024, sizeof(char));
+          char *dir_ptr = args[1];
+          while (*dir_ptr) {
+            size_t len = strcspn(dir_ptr, "~");
+            strncpy(dir_to_change, dir_ptr, len);
+            dir_to_change[len] = '\0';
+
+            if (*dir_ptr == '~') {
+              const char *home = getenv("HOME");
+              if (home) {
+                strcat(dir_to_change, home);
+                dir_ptr++;
+              }
+            }
+            strcat(dir_to_change, dir_ptr);
+            dir_ptr += strspn(dir_ptr, "~");
+          }
+          path_to_use = dir_to_change;
+        } else {
+          path_to_use = args[1];
+        }
+
+        int chdir_result = chdir(path_to_use);
+        
         if (chdir_result < 0) {
-          printf("cd: %s: No such file or directory\n", args[1]);
+          printf("cd: %s: No such file or directory\n", path_to_use);
+        }
+        
+        if (dir_to_change) {
+          free(dir_to_change);
         }
       }
     } else {
