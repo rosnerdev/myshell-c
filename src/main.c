@@ -74,6 +74,19 @@ int main(int argc, char *argv[]) {
           free(path); // make sure to free the strdup'd string!
         }
       }
+
+    /* FIXIT: this whole check is wrong since it still works even if there are more arguments afterwards, so we'll need to refactor this bit. */
+    /* TODO: make it so that the args parsing is done before the if-else branch in the top-level of main() */
+    } else if (!strncmp(input, "pwd", 3)) {
+      command_found = 1;
+      char cwd[1024];
+
+      if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        printf("%s\n", cwd);
+      } else {
+        perror("getcwd");
+        return 1;
+      }
     } else {
       command_found = 1;
 
@@ -153,9 +166,9 @@ int main(int argc, char *argv[]) {
 }
 
 int is_builtin(const char *str) {
-  const char *builtins[3] = {"exit", "echo", "type"};
+  const char *builtins[4] = {"exit", "echo", "type", "pwd"};
   
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < 4; ++i) {
     if (!strcmp(str, builtins[i]))
       return 1;
   }
