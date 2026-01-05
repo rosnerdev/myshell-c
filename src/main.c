@@ -14,6 +14,7 @@ typedef struct {
 int is_builtin(const char *str);
 file search_file_in_directory(const char *dir_path, const char *target_filename);
 char **parse_args(char *input);
+void free_args(char **args);
 
 int get_args_len(char **args) {
   int count = 0;
@@ -26,11 +27,11 @@ int get_args_len(char **args) {
 }
 
 int main(int argc, char *argv[]) {
-  // Throw argc and argv to avoid warnings from the compiler
+  // throw  argc and argv to avoid warnings from the compiler
   (void)argc;
   (void)argv;
 
-  // Flush after every printf
+  // flush after every printf
   setbuf(stdout, NULL);
 
   while (1) {
@@ -56,12 +57,11 @@ int main(int argc, char *argv[]) {
       break;
     else if (!strncmp(input, "echo", 4)) {
       // TODO: make the code better and make echo ignore quotes and other stuff!!!
-      // FORMER CODE:
-      // if (args_len > 1)
-      //   puts(args[1]);
-      const char *rest = strchr(input, ' ') + 1;
-      if (rest != NULL)
-        puts(rest);
+      for (int i = 1; i < args_len; ++i) {
+        if (i > 1) printf(" ");
+        printf("%s", args[i]);
+      }
+      puts("");
     } else if (!strncmp(input, "type", 4) && strlen(input) > 5) {
       if (args_len > 1) {
         if (is_builtin(args[1])) {
@@ -109,41 +109,11 @@ int main(int argc, char *argv[]) {
       }
     } else if (!strncmp(input, "cd", 2)) {
       if (args_len > 1) {
-        const char *path_to_use;
-        char *dir_to_change = NULL;
-        
-        // Check if there's a tilde to expand
-        if (strchr(args[1], '~') != NULL) {
-          dir_to_change = calloc(1024, sizeof(char));
-          char *dir_ptr = args[1];
-          while (*dir_ptr) {
-            size_t len = strcspn(dir_ptr, "~");
-            strncpy(dir_to_change, dir_ptr, len);
-            dir_to_change[len] = '\0';
-
-            if (*dir_ptr == '~') {
-              const char *home = getenv("HOME");
-              if (home) {
-                strcat(dir_to_change, home);
-                dir_ptr++;
-              }
-            }
-            strcat(dir_to_change, dir_ptr);
-            dir_ptr += strspn(dir_ptr, "~");
-          }
-          path_to_use = dir_to_change;
-        } else {
-          path_to_use = args[1];
-        }
-
-        int chdir_result = chdir(path_to_use);
-        
-        if (chdir_result < 0) {
-          printf("cd: %s: No such file or directory\n", path_to_use);
-        }
-        
-        if (dir_to_change) {
-          free(dir_to_change);
+        /* TODO: fixit so that it will only work outside of quotation marks */
+        /* TODO: Consecutive whitespace characters (spaces, tabs) inside single quotes are preserved and are not collapsed or used as delimiters. */
+        /* TODO: Quoted strings placed next to each other are concatenated to form a single argument. */
+        if (chdir(args[1]) < 0) {
+          printf("cd: %s: No such file or directory\n", args[1]);
         }
       }
     } else {
@@ -181,7 +151,7 @@ int main(int argc, char *argv[]) {
     
       if (pid < 0) {
           perror("fork");
-          free(args);
+          free_args(args);
           free(line);
           return 1;
       }
@@ -203,7 +173,7 @@ int main(int argc, char *argv[]) {
 command_not_found:
     printf("%s: command not found\n", args[0]);
 cleanup_stuff:
-    free(args);
+    free_args(args);
     free(line);
   }
 
@@ -255,17 +225,62 @@ file search_file_in_directory(const char *dir_path, const char *target_filename)
     return result;
 }
 
+/* TODO: FIXIT: instead of strtok- use a state-machine-based tokenizr that consumes each character separately */
+/* TODO: FIXIT: make sure that all these limitations such as 256 characters per string, are unlocked if the user wants to- basically make sure to realloc!!! */
 char **parse_args(char *input) {
-    char **args = malloc(64 * sizeof(char *));  // Max 64 args
-    if (!args) return NULL;
-    
-    int i = 0;
-    char *token = strtok(input, " \t\n");
-    while (token != NULL && i < 63) {
-        args[i++] = token;
-        token = strtok(NULL, " \t\n");
+  char **args = calloc(64, sizeof(char *));  // Max 64 args
+  if (!args) return NULL;
+  char *current_arg = calloc(256, sizeof(char));
+  int arg_pos = 0;
+  int arg_count = 0;
+  int in_single_quote = 0;
+  
+  for (int i = 0; input[i] != '\0'; i++) {
+    char c = input[i];
+
+    if (in_single_quote) {
+        if (c == '\'') {
+            in_single_quote = 0;  // end quote, but DON'T end argument
+        } else {
+            current_arg[arg_pos++] = c;  // copy literally
+        }
+    } else {
+        // not in quotes
+        if (c == '\'') {
+          in_single_quote = 1;  // start quote
+        } else if (c == ' ' || c == '\t') {
+          if (arg_pos > 0) {
+            // finish this argument
+            current_arg[arg_pos] = '\0';
+            args[arg_count++] = strdup(current_arg);
+            arg_pos = 0;
+          }
+          // skip consecutive spaces (do nothing)
+        } else if (c == '~') {
+          const char *env_home = getenv("HOME");
+          /* FIXIT: this is very dangerous! what if there is not enough space of the current_arg? this could potentially create segfaults and/or other bugs!!! URGENTLY REPLACE THIS */
+          strcpy(current_arg + arg_pos, env_home);
+          arg_pos += (int)strlen(env_home);
+        } else {
+          current_arg[arg_pos++] = c;
+        }
     }
-    args[i] = NULL;  // execvp requires NULL-terminated array
-    
-    return args;
+  }
+  
+  // Don't forget the last argument!
+  if (arg_pos > 0) {
+      current_arg[arg_pos] = '\0';
+      args[arg_count++] = strdup(current_arg);
+  }
+  
+  args[arg_count] = NULL;
+  free(current_arg);
+  
+  return args;
+}
+
+void free_args(char **args) {
+    for (int i = 0; args[i] != NULL; i++)
+        free(args[i]);
+    free(args);
 }
