@@ -234,6 +234,7 @@ char **parse_args(char *input) {
   int arg_pos = 0;
   int arg_count = 0;
   int in_single_quote = 0;
+  int in_double_quote = 0;
   
   for (int i = 0; input[i] != '\0'; i++) {
     char c = input[i];
@@ -244,11 +245,19 @@ char **parse_args(char *input) {
         } else {
             current_arg[arg_pos++] = c;  // copy literally
         }
+    } else if (in_double_quote) {
+      if (c == '"') {
+				in_double_quote = 0;
+			} else {
+				current_arg[arg_pos++] = c;
+			}
     } else {
         // not in quotes
         if (c == '\'') {
           in_single_quote = 1;  // start quote
-        } else if (c == ' ' || c == '\t') {
+				} else if (c == '"') {
+					in_double_quote = 1;
+				} else if (c == ' ' || c == '\t') {
           if (arg_pos > 0) {
             // finish this argument
             current_arg[arg_pos] = '\0';
