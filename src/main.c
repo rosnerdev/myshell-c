@@ -13,8 +13,10 @@ typedef struct {
 } file;
 
 typedef struct {
-	char *filename;
-	int index;
+	char *stdout_file;
+	char *stderr_file;
+	int stdout_index;
+	int stderr_index;
 } redirect_info;
 
 int is_builtin(const char *str);
@@ -59,23 +61,46 @@ int main(int argc, char *argv[]) {
     }
 
 		redirect_info redir = find_stdout_redirect(args);
-		if (redir.index != -1) {
-			free(args[redir.index]);
-			args[redir.index] = NULL;
+		if (redir.stdout_index != -1) {
+			free(args[redir.stdout_index]);
+			args[redir.stdout_index] = NULL;
+		}
+		
+		if (redir.stderr_index != -1) {
+			free(args[redir.stderr_index]);
+			args[redir.stderr_index] = NULL;
 		}
 
 		int saved_stdout = -1;
-		if (redir.filename) {
+		if (redir.stdout_file) {
 			// Save original stdout
 			saved_stdout = dup(STDOUT_FILENO);
 			
 			// Open file and redirect stdout to it
-			int fd = open(redir.filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			int fd = open(redir.stdout_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 			if (fd == -1) {
 				perror("open");
 				exit(1);
 			}
 			if (dup2(fd, STDOUT_FILENO) == -1) {
+				perror("dup2");
+				exit(1);
+			}
+			close(fd);
+		}
+
+		int saved_stderr = -1;
+		if (redir.stderr_file) {
+			// Save original stdout
+			saved_stderr = dup(STDERR_FILENO);
+			
+			// Open file and redirect stdout to it
+			int fd = open(redir.stderr_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			if (fd == -1) {
+				perror("open");
+				exit(1);
+			}
+			if (dup2(fd, STDERR_FILENO) == -1) {
 				perror("dup2");
 				exit(1);
 			}
@@ -188,20 +213,38 @@ int main(int argc, char *argv[]) {
       
       if (pid == 0) {
 				// Child process
-				if (redir.filename) {
-					int fd = open(redir.filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-					if (fd == -1) {
-						perror("open");
-						exit(1);
+				if (redir.stdout_file) {
+					if (redir.stdout_file) {
+						int fd = open(redir.stdout_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+						if (fd == -1) {
+							perror("open");
+							exit(1);
+						}
+	
+						// redirects stdout to my file
+						if (dup2(fd, STDOUT_FILENO) == -1) {
+							perror("dup2");
+							exit(1);
+						}
+						
+						close(fd);
 					}
-
-					// redirects stdout to my file
-					if (dup2(fd, STDOUT_FILENO) == -1) {
-						perror("dup2");
-						exit(1);
+				} else if (redir.stderr_file) {
+					if (redir.stderr_file) {
+						int fd = open(redir.stderr_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+						if (fd == -1) {
+							perror("open");
+							exit(1);
+						}
+	
+						// redirects stdout to my file
+						if (dup2(fd, STDERR_FILENO) == -1) {
+							perror("dup2");
+							exit(1);
+						}
+						
+						close(fd);
 					}
-					
-					close(fd);
 				}
 				execvp(args[0], args);
 				// If execvp returns, it failed
@@ -220,14 +263,22 @@ int main(int argc, char *argv[]) {
 				exit(1);
 			}
 			close(saved_stdout);
+		} else if (saved_stderr != -1) {
+			if (dup2(saved_stderr, STDERR_FILENO) == -1) {
+				perror("dup2");
+				exit(1);
+			}
+			close(saved_stderr);
 		}
 
     goto cleanup_stuff;
 command_not_found:
-    printf("%s: command not found\n", args[0]);
+    fprintf(stderr, "%s: command not found\n", args[0]);
 cleanup_stuff:
-		if (redir.filename)
-			free(redir.filename); // free the orphaned filename
+		if (redir.stdout_file)
+			free(redir.stdout_file); // free the orphaned filename
+		if (redir.stderr_file)
+			free(redir.stderr_file); // free the orphaned filename
     free_args(args);
     free(line);
   }
@@ -380,19 +431,30 @@ void free_args(char **args) {
 
 // FIXIT: doesn't handle edge cases like: missing filename, redirection with no spaces around it, etc.
 redirect_info find_stdout_redirect(char **args) {
-	redirect_info result = {.filename = NULL, .index = -1};
+	redirect_info result = {.stdout_file = NULL, .stderr_file = NULL, .stdout_index = -1, .stderr_index = -1};
 	int found_redirect = 0;
+	int stdout_val = 0, stderr_val = 0;
 	
 	int i;
 	for (i = 0; args[i] != NULL; ++i)	{
 		if (found_redirect) {
-			result.filename = args[i];
-			result.index = i-1;
+			if (stdout_val) {
+				result.stdout_file = strdup(args[i]);
+				result.stdout_index = i-1;
+			} else if (stderr_val) {
+				result.stderr_file = strdup(args[i]);
+				result.stderr_index = i-1;
+			}
 			break;
 		}
 		
-		if (!strcmp(">", args[i]) || !strcmp("1>", args[i]))
+		if (!strcmp(">", args[i]) || !strcmp("1>", args[i])) {
 			found_redirect = 1;
+			stdout_val = 1;
+		} else if (!strcmp("2>", args[i])) {
+			found_redirect = 1;
+			stderr_val = 1;
+		}
 	}
 
 	return result;
