@@ -5,16 +5,23 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 typedef struct {
   char path[1024];
   int exists;
 } file;
 
+typedef struct {
+	char *filename;
+	int index;
+} redirect_info;
+
 int is_builtin(const char *str);
 file search_file_in_directory(const char *dir_path, const char *target_filename);
 char **parse_args(char *input);
 void free_args(char **args);
+redirect_info find_stdout_redirect(char **args);
 
 int get_args_len(char **args) {
   int count = 0;
@@ -47,9 +54,33 @@ int main(int argc, char *argv[]) {
     // split the arguments
     char **args = parse_args(line);
     if (!args) {
-        perror("parse_args");
-        return 1;
+			perror("parse_args");
+			return 1;
     }
+
+		redirect_info redir = find_stdout_redirect(args);
+		if (redir.index != -1) {
+			free(args[redir.index]);
+			args[redir.index] = NULL;
+		}
+
+		int saved_stdout = -1;
+		if (redir.filename) {
+			// Save original stdout
+			saved_stdout = dup(STDOUT_FILENO);
+			
+			// Open file and redirect stdout to it
+			int fd = open(redir.filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			if (fd == -1) {
+				perror("open");
+				exit(1);
+			}
+			if (dup2(fd, STDOUT_FILENO) == -1) {
+				perror("dup2");
+				exit(1);
+			}
+			close(fd);
+		}
 
     int args_len = get_args_len(args);
       
@@ -133,7 +164,6 @@ int main(int argc, char *argv[]) {
           }
           
           tok = strtok_r(NULL, ":", &path_tok_saveptr);
-          
           if (tok == NULL) {
             not_found_path = 1;
             break;
@@ -150,29 +180,54 @@ int main(int argc, char *argv[]) {
       pid_t pid = fork();
     
       if (pid < 0) {
-          perror("fork");
-          free_args(args);
-          free(line);
-          return 1;
+				perror("fork");
+				free_args(args);
+				free(line);
+				return 1;
       }
       
       if (pid == 0) {
-          // Child process
-          execvp(args[0], args);
-          // If execvp returns, it failed
-          perror("execvp");
-          exit(1);
+				// Child process
+				if (redir.filename) {
+					int fd = open(redir.filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+					if (fd == -1) {
+						perror("open");
+						exit(1);
+					}
+
+					// redirects stdout to my file
+					if (dup2(fd, STDOUT_FILENO) == -1) {
+						perror("dup2");
+						exit(1);
+					}
+					
+					close(fd);
+				}
+				execvp(args[0], args);
+				// If execvp returns, it failed
+				perror("execvp");
+				exit(1);
       } else {
-          // Parent process
-          int status;
-          waitpid(pid, &status, 0);
+				// Parent process
+				int status;
+				waitpid(pid, &status, 0);
       }
     }
+
+		if (saved_stdout != -1) {
+			if (dup2(saved_stdout, STDOUT_FILENO) == -1) {
+				perror("dup2");
+				exit(1);
+			}
+			close(saved_stdout);
+		}
 
     goto cleanup_stuff;
 command_not_found:
     printf("%s: command not found\n", args[0]);
 cleanup_stuff:
+		if (redir.filename)
+			free(redir.filename); // free the orphaned filename
     free_args(args);
     free(line);
   }
@@ -181,9 +236,10 @@ cleanup_stuff:
 }
 
 int is_builtin(const char *str) {
+	// TODO: add more builtins for my own use cases!
   const char *builtins[] = {"exit", "echo", "type", "pwd", "cd"};
   
-  for (int i = 0; i < 5; ++i) {
+  for(int i = 0; i < 5; ++i) {
     if (!strcmp(str, builtins[i]))
       return 1;
   }
@@ -196,29 +252,29 @@ file search_file_in_directory(const char *dir_path, const char *target_filename)
     
     DIR *dir = opendir(dir_path);
     if (!dir) {
-        return result;  // Don't print error, directory might not exist
+			return result;  // Don't print error, directory might not exist
     }
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-        // Check if this is the file we're looking for
-        if (strcmp(entry->d_name, target_filename) == 0) {
-            // Build full path
-            char full_path[1024];
-            snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
+			// Check if this is the file we're looking for
+			if (strcmp(entry->d_name, target_filename) == 0) {
+				// Build full path
+				char full_path[1024];
+				snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
 
-            struct stat statbuf;
-            if (stat(full_path, &statbuf) == 0 && S_ISREG(statbuf.st_mode)) {
-                // Check if executable
-                if (statbuf.st_mode & S_IXUSR) {
-                    strncpy(result.path, full_path, sizeof(result.path) - 1);
-                    result.path[sizeof(result.path) - 1] = '\0';
-                    result.exists = 1;
-                    closedir(dir);
-                    return result;
-                }
-            }
-        }
+				struct stat statbuf;
+				if (stat(full_path, &statbuf) == 0 && S_ISREG(statbuf.st_mode)) {
+					// Check if executable
+					if (statbuf.st_mode & S_IXUSR) {
+						strncpy(result.path, full_path, sizeof(result.path) - 1);
+						result.path[sizeof(result.path) - 1] = '\0';
+						result.exists = 1;
+						closedir(dir);
+						return result;
+					}
+				}
+			}
     }
 
     closedir(dir);
@@ -228,6 +284,7 @@ file search_file_in_directory(const char *dir_path, const char *target_filename)
 /* TODO: FIXIT: instead of strtok- use a state-machine-based tokenizr that consumes each character separately */
 /* TODO: FIXIT: make sure that all these limitations such as 256 characters per string, are unlocked if the user wants to- basically make sure to realloc!!! */
 char **parse_args(char *input) {
+	// TODO: add support for printing environment variables like "echo $PATH" should totally work!
   char **args = calloc(64, sizeof(char *));  // Max 64 args
   if (!args) return NULL;
   char *current_arg = calloc(256, sizeof(char));
@@ -319,4 +376,24 @@ void free_args(char **args) {
     for (int i = 0; args[i] != NULL; i++)
         free(args[i]);
     free(args);
+}
+
+// FIXIT: doesn't handle edge cases like: missing filename, redirection with no spaces around it, etc.
+redirect_info find_stdout_redirect(char **args) {
+	redirect_info result = {.filename = NULL, .index = -1};
+	int found_redirect = 0;
+	
+	int i;
+	for (i = 0; args[i] != NULL; ++i)	{
+		if (found_redirect) {
+			result.filename = args[i];
+			result.index = i-1;
+			break;
+		}
+		
+		if (!strcmp(">", args[i]) || !strcmp("1>", args[i]))
+			found_redirect = 1;
+	}
+
+	return result;
 }
