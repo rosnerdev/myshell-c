@@ -303,6 +303,10 @@ Command parse_args(char *input) {
 				result.output_file = strdup(args[i]);
 				result.output_index = i-1;
 				result.append_stdout = 1;
+			} else if (error_val) {
+				result.error_file = strdup(args[i]);
+				result.error_index = i-1;
+				result.append_stderr = 1;
 			}
 			break;
 		}
@@ -316,10 +320,11 @@ Command parse_args(char *input) {
 		} else if (!strcmp("1>>", args[i]) || !strcmp(">>", args[i])) {
 			found_append = 1;
 			output_val = 1;
+		} else if (!strcmp("2>>", args[i])) {
+			found_append = 1;
+			error_val = 1;
 		}
 	}
-
-	// TODO: handle append!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
   return result;
