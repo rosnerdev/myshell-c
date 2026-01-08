@@ -3,9 +3,11 @@
 #include <string.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <termios.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #include "shell.h"
 #include "utils.h"
@@ -13,22 +15,104 @@
 Command parse_args(char *input);
 void free_args(char **args);
 
+static struct termios g_orig_termios;
+
+void disable_raw_mode(struct termios *orig) {
+		tcsetattr(STDIN_FILENO, TCSAFLUSH, orig);
+}
+
+// Signal handler for Ctrl+C
+void handle_sigint(int sig) {
+    (void)sig;
+    disable_raw_mode(&g_orig_termios);
+    printf("\n");
+    exit(0);
+}
+
+void enable_raw_mode(struct termios *orig) {
+    struct termios raw;
+    
+    // get current terminal attributes
+    tcgetattr(STDIN_FILENO, orig);
+    raw = *orig;
+    
+    // disable canonical mode and echo
+    raw.c_lflag &= ~(ICANON | ECHO);
+    
+    // apply the new settings
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+
 int main(int argc, char *argv[]) {
   // throw  argc and argv to avoid warnings from the compiler
   (void)argc;
   (void)argv;
 
-  // flush after every printf
+	struct termios orig_termios;
+
+	enable_raw_mode(&orig_termios);
+	signal(SIGINT, handle_sigint);
+  
+	// flush after every printf
   setbuf(stdout, NULL);
 
   while (1) {
     printf("$ ");
-    
-    char input[100];
-    if (!fgets(input, 100, stdin))
-      break;
+    fflush(stdout);
 
-    input[strcspn(input, "\n")] = '\0';
+    char input[100];
+		int pos = 0;
+
+		// Read characters one by one
+    while (1) {
+			char ch;
+			if (read(STDIN_FILENO, &ch, 1) != 1)
+				goto exit_shell;  // Error or EOF
+		
+			if (ch == '\r' || ch == '\n') {
+				// Enter pressed - finish input
+				write(STDOUT_FILENO, "\n", 1);  // Move to next line
+				input[pos] = '\0';
+				break;
+			} else if (ch == 127 || ch == 8) {
+				// Backspace
+				if (pos > 0) {
+					pos--;
+					write(STDOUT_FILENO, "\b \b", 3);  // Move back, erase, move back again
+				}
+			} else if (ch == '\t') {
+				input[pos] = '\0';  // Null-terminate current input
+				
+				const char *completion = NULL;
+				
+				// Check if input matches beginning of "exit" (without the space!)
+				if (pos > 0 && strncmp(input, "exit", pos) == 0 && pos < 4) {
+					completion = "exit ";
+				}
+				// Check if input matches beginning of "echo"
+				else if (pos > 0 && strncmp(input, "echo", pos) == 0 && pos < 4) {
+					completion = "echo ";
+				}
+				
+				if (completion != NULL) {
+					// Write the rest of the command
+					const char *rest = completion + pos;
+					write(STDOUT_FILENO, rest, strlen(rest));
+					
+					// Update buffer and position
+					strcpy(input + pos, rest);
+					pos += strlen(rest);
+				}
+			} else if (ch >= 32 && ch < 127) {
+				// Printable character
+				if (pos < 99) {
+					input[pos++] = ch;
+					write(STDOUT_FILENO, &ch, 1);  // Echo it
+				}
+			}
+			// Ignore other control characters
+    }
 
     char *line = strdup(input);
     // split the arguments
@@ -192,7 +276,8 @@ cleanup_stuff:
     free_args(cmd.args);
     free(line);
   }
-
+exit_shell:
+	disable_raw_mode(&orig_termios);
   return 0;
 }
 

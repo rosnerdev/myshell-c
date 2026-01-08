@@ -5,13 +5,14 @@
 #include <string.h>
 #include <unistd.h>
 
+// TODO: add support for - history(first before all of the others, others are optional for now), alias, unalias, export, pushd, popd(dirs later, other stuff later on the line probably.)
 int handle_builtin(Command *cmd) {
     if (cmd->args == NULL || cmd->args[0] == NULL) {
         return 0;
     }
 
     if (!strcmp(cmd->args[0], "exit")) {
-        // TODO: maybe add logic here to free memory before exiting
+        // TODO: maybe add logic here to free memory before exiting-not too sure though
         exit(0);
     } 
     
