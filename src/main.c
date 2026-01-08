@@ -21,7 +21,7 @@ void disable_raw_mode(struct termios *orig) {
 		tcsetattr(STDIN_FILENO, TCSAFLUSH, orig);
 }
 
-// Signal handler for Ctrl+C
+// FIXIT: for now not working for some reason I'll have to fix.
 void handle_sigint(int sig) {
     (void)sig;
     disable_raw_mode(&g_orig_termios);
@@ -45,7 +45,7 @@ void enable_raw_mode(struct termios *orig) {
 
 
 int main(int argc, char *argv[]) {
-  // throw  argc and argv to avoid warnings from the compiler
+  // throw argc and argv to avoid warnings from the compiler
   (void)argc;
   (void)argv;
 
@@ -86,13 +86,16 @@ int main(int argc, char *argv[]) {
 				
 				const char *completion = NULL;
 				
-				// Check if input matches beginning of "exit" (without the space!)
 				if (pos > 0 && strncmp(input, "exit", pos) == 0 && pos < 4) {
 					completion = "exit ";
-				}
-				// Check if input matches beginning of "echo"
-				else if (pos > 0 && strncmp(input, "echo", pos) == 0 && pos < 4) {
+				} else if (pos > 0 && strncmp(input, "echo", pos) == 0 && pos < 4) {
 					completion = "echo ";
+				} else if (pos > 0 && strncmp(input, "cd", pos) == 0 && pos < 2) {
+					completion = "cd ";
+				} else if (pos > 0 && strncmp(input, "pwd", pos) == 0 && pos < 3) {
+					completion = "pwd ";
+				} else if (pos > 0 && strncmp(input, "type", pos) == 0 && pos < 4) {
+					completion = "type ";
 				}
 				
 				if (completion != NULL) {
@@ -103,6 +106,8 @@ int main(int argc, char *argv[]) {
 					// Update buffer and position
 					strcpy(input + pos, rest);
 					pos += strlen(rest);
+				} else {
+					write(STDOUT_FILENO, "\x07", 1);
 				}
 			} else if (ch >= 32 && ch < 127) {
 				// Printable character
