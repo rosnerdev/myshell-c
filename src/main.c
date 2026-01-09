@@ -65,28 +65,28 @@ int main(int argc, char *argv[]) {
 		int pos = 0;
 		int tab_count = 0;
 
-		// Read characters one by one
+		// read chars sequentially
     while (1) {
 			char ch;
 			if (read(STDIN_FILENO, &ch, 1) != 1)
-				goto exit_shell;  // Error or EOF
+				goto exit_shell;
 		
 			if (ch == '\r' || ch == '\n') {
-				// Enter pressed - finish input
-				write(STDOUT_FILENO, "\n", 1);  // Move to next line
+				write(STDOUT_FILENO, "\n", 1); 
 				input[pos] = '\0';
 				break;
 			} else if (ch == 127 || ch == 8) {
-				// Backspace
+				// handle backspace
 				if (pos > 0) {
 					pos--;
-					write(STDOUT_FILENO, "\b \b", 3);  // Move back, erase, move back again
+					write(STDOUT_FILENO, "\b \b", 3);
 				}
 			} else if (ch == '\t') {
-				input[pos] = '\0';  // Null-terminate current input
+				input[pos] = '\0';
 				
 				char completion[100];
 				int has_completion = 0;
+				int lcp_written = 0;
 				
 				if (pos > 0 && strncmp(input, "exit", pos) == 0 && pos < 4) {
 					strcpy(completion, "exit ");
@@ -115,34 +115,61 @@ int main(int argc, char *argv[]) {
 						tab_count = 0;
 						has_completion = 1;
 					} else if (completions_count > 1) {
-						if (tab_count == 0) {
-							write(STDOUT_FILENO, "\x07", 1);
-							tab_count = 1;
-						} else if (tab_count == 1) {
-							write(STDOUT_FILENO, "\n", 1);
-							for (int i = 0; i < completions_count; ++i) {
-								if (i != 0)
-									write(STDOUT_FILENO, "  ", 2);
-								write(STDOUT_FILENO, completions[i].name, strlen(completions[i].name));
-							}
-							write(STDOUT_FILENO, "\n$ ", 3);
-							write(STDOUT_FILENO, input, pos);
+						/* handles LCP completion
+						 * since the completions' names are alphabetically sorted-finding the LCP is simply the LCP of the first and last elements
+						 */
+						const char *a = completions[0].name;
+						const char *b = completions[completions_count - 1].name;
+						int len_a = (int)strlen(a);
+						int len_b = (int)strlen(b);
+						int smallest_len = len_a < len_b ? len_a : len_b;
+						int lcp_len = 0;
+						for (int i = 0; i < smallest_len; ++i) {
+								if (a[i] != b[i]) break;
+								lcp_len++;
+						}
+
+						if (lcp_len > pos) {
+							/* write only the additional characters (from pos..lcp_len-1) */
+							int add = lcp_len - pos;
+							write(STDOUT_FILENO, a + pos, add);
+							memcpy(input + pos, a + pos, add);
+							pos += add;
+							input[pos] = '\0';
+							/* mark that we've already written LCP directly */
+							lcp_written = 1;
+							has_completion = 0;
 							tab_count = 0;
+						} else {
+							if (tab_count == 0) {
+								write(STDOUT_FILENO, "\x07", 1);
+								tab_count = 1;
+							} else if (tab_count == 1) {
+								write(STDOUT_FILENO, "\n", 1);
+								for (int i = 0; i < completions_count; ++i) {
+									if (i != 0) write(STDOUT_FILENO, "  ", 2);
+									write(STDOUT_FILENO, completions[i].name, strlen(completions[i].name));
+								}
+
+								write(STDOUT_FILENO, "\n$ ", 3);
+								write(STDOUT_FILENO, input, pos);
+								tab_count = 0;
+							}
 						}
 					}
 
-					// if (completions) {
-					// 	free(completions);
-        	// }
+					/* free(completions) */
+					if (completions) free(completions);
 				}
 				
-				if (has_completion) {
+				if (has_completion && !lcp_written) {
 					const char *rest = completion + pos;
 					write(STDOUT_FILENO, rest, strlen(rest));
-					
+
 					strcpy(input + pos, rest);
 					pos += strlen(rest);
 				}
+				lcp_goto:
 			} else if (ch >= 32 && ch < 127) {
 				if (pos < 99) {
 					input[pos++] = ch;
@@ -158,6 +185,12 @@ int main(int argc, char *argv[]) {
 			perror("parse_args");
 			return 1;
     }
+
+		if (cmd.arg_count == 0 || cmd.args[0] == NULL) {
+			free_args(cmd.args);
+			free(line);
+			continue;
+		}
 
 		if (cmd.output_index != -1) {
 			free(cmd.args[cmd.output_index]);

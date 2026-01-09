@@ -89,9 +89,7 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 									capacity *= 2;
 									FileResult *new_matches = realloc(matches, capacity * sizeof(FileResult));
 									if (!new_matches) {
-										for (int i = 0; i < *count; i++) {
-											free(matches);
-										}
+										/* realloc failed; free the original buffer once and cleanup */
 										free(matches);
 										closedir(d);
 										free(path_copy);
@@ -115,6 +113,7 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 
 	free(path_copy);
 
+	/* sort the completions' executables' names alphabetically! */
 	for (int i = 0; i < *count - 1; i++) {
 		for (int j = i + 1; j < *count; j++) {
 			if (strcmp(matches[i].name, matches[j].name) > 0) {
