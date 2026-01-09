@@ -84,43 +84,46 @@ int main(int argc, char *argv[]) {
 			} else if (ch == '\t') {
 				input[pos] = '\0';  // Null-terminate current input
 				
-				const char *completion = NULL;
+				char completion[100];
 				
 				if (pos > 0 && strncmp(input, "exit", pos) == 0 && pos < 4) {
-					completion = "exit ";
+					strcpy(completion, "exit ");
 				} else if (pos > 0 && strncmp(input, "echo", pos) == 0 && pos < 4) {
-					completion = "echo ";
+					strcpy(completion, "echo ");
 				} else if (pos > 0 && strncmp(input, "cd", pos) == 0 && pos < 2) {
-					completion = "cd ";
+					strcpy(completion, "cd ");
 				} else if (pos > 0 && strncmp(input, "pwd", pos) == 0 && pos < 3) {
-					completion = "pwd ";
+					strcpy(completion, "pwd ");
 				} else if (pos > 0 && strncmp(input, "type", pos) == 0 && pos < 4) {
-					completion = "type ";
+					strcpy(completion, "type ");
+				} else {
+					int completions_count = 0;
+					FileResult *completions = find_executables_with_prefix(input, &completions_count);
+					if (completions_count > 0) {
+						strcpy(completion, completions[0].name);
+						strcat(completion, " ");
+					} else {
+						write(STDOUT_FILENO, "\x07", 1);
+					}
 				}
 				
-				if (completion != NULL) {
-					// Write the rest of the command
+				if (completion) {
 					const char *rest = completion + pos;
 					write(STDOUT_FILENO, rest, strlen(rest));
 					
-					// Update buffer and position
 					strcpy(input + pos, rest);
 					pos += strlen(rest);
-				} else {
-					write(STDOUT_FILENO, "\x07", 1);
 				}
 			} else if (ch >= 32 && ch < 127) {
-				// Printable character
 				if (pos < 99) {
 					input[pos++] = ch;
-					write(STDOUT_FILENO, &ch, 1);  // Echo it
+					write(STDOUT_FILENO, &ch, 1);
 				}
 			}
-			// Ignore other control characters
+			// ignore other control characters
     }
 
     char *line = strdup(input);
-    // split the arguments
     Command cmd = parse_args(line);
     if (!cmd.args) {
 			perror("parse_args");
@@ -138,10 +141,10 @@ int main(int argc, char *argv[]) {
 
 		int saved_stdout = -1;
 		if (cmd.output_file) {
-			// Save original stdout
-			saved_stdout = dup(STDOUT_FILENO);
+			saved_stdout = dup(STDOUT_FILENO); // save original stdout
 			int curr = cmd.append_stdout == 1 ? O_APPEND : O_TRUNC;
-			// Open file and redirect stdout to it
+
+			/* open file and redirect stdout to it */
 			int fd = open(cmd.output_file, O_WRONLY | O_CREAT | curr, 0644);
 			if (fd == -1) {
 				perror("open");
@@ -184,7 +187,6 @@ int main(int argc, char *argv[]) {
         char *tok = strtok_r(path, ":", &path_tok_saveptr);
         while (tok != NULL) {
           FileResult result = search_file_in_directory(tok, cmd.args[0]);
-
           if (result.exists) {
             break;
           }

@@ -1,32 +1,35 @@
 #include "utils.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
 
 FileResult search_file_in_directory(const char *dir_path, const char *target_filename) {
-    FileResult result = {{0}, 0};
+    FileResult result = {{0}, {0}, 0};
     
     DIR *dir = opendir(dir_path);
     if (!dir) {
-			return result;  // Don't print error, directory might not exist
+			return result;
     }
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-			// Check if this is the file we're looking for
 			if (strcmp(entry->d_name, target_filename) == 0) {
-				// Build full path
 				char full_path[1024];
 				snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
 
 				struct stat statbuf;
 				if (stat(full_path, &statbuf) == 0 && S_ISREG(statbuf.st_mode)) {
-					// Check if executable
+					// check if executable
 					if (statbuf.st_mode & S_IXUSR) {
+						const char *name = strdup(entry->d_name);
 						strncpy(result.path, full_path, sizeof(result.path) - 1);
 						result.path[sizeof(result.path) - 1] = '\0';
+						strncpy(result.name, name, sizeof(result.name) - 1);
+						result.name[sizeof(result.name) - 1] = '\0';
 						result.exists = 1;
 						closedir(dir);
 						return result;
@@ -37,4 +40,72 @@ FileResult search_file_in_directory(const char *dir_path, const char *target_fil
 
     closedir(dir);
     return result;
+}
+
+FileResult *find_executables_with_prefix(const char *prefix, int *count) {
+	*count = 0;
+	FileResult *matches;
+	int capacity = 10;
+	matches = calloc(capacity, sizeof(FileResult));
+	if (!matches) return NULL;
+
+	char *path_env = getenv("PATH");
+	if (!path_env) {
+			free(matches);
+			return NULL;
+	}
+
+	char *path_copy = strdup(path_env);
+	if (!path_copy) {
+			free(matches);
+			return NULL;
+	}
+
+	char *dir = strtok(path_copy, ":");
+	size_t prefix_len = strlen(prefix);
+
+	while (dir != NULL) {
+			DIR *d = opendir(dir);
+			if (d) {
+				struct dirent *entry;
+				while ((entry = readdir(d)) != NULL) {
+					if (entry->d_type == DT_REG || entry->d_type == DT_LNK) {
+						if (strncmp(entry->d_name, prefix, prefix_len) == 0) {
+							// Check if executable
+							char full_path[PATH_MAX];
+							snprintf(full_path, sizeof(full_path), "%s/%s", dir, entry->d_name);
+							if (access(full_path, X_OK) == 0) {
+								// Expand array if needed
+								if (*count >= capacity) {
+									capacity *= 2;
+									FileResult *new_matches = realloc(matches, capacity * sizeof(FileResult));
+									if (!new_matches) {
+										for (int i = 0; i < *count; i++) {
+											free(matches[i].name);
+											free(matches[i].path);
+										}
+										free(matches);
+										closedir(d);
+										free(path_copy);
+										return NULL;
+									}
+									matches = new_matches;
+								}
+
+								// TODO: make sure to clean this up + make sure strcpy is good/use strncpy instead.
+								const char *name = strdup(entry->d_name);
+								const char *path = strdup(full_path);
+								strcpy(matches[(*count)++].name, name);
+								strcpy(matches[(*count)++].path, path);
+							}
+						}
+					}
+				}
+				closedir(d);
+		}
+		dir = strtok(NULL, ":");
+	}
+
+	free(path_copy);
+	return matches;
 }
