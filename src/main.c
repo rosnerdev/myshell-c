@@ -63,6 +63,7 @@ int main(int argc, char *argv[]) {
 
     char input[100];
 		int pos = 0;
+		int tab_count = 0;
 
 		// Read characters one by one
     while (1) {
@@ -85,29 +86,57 @@ int main(int argc, char *argv[]) {
 				input[pos] = '\0';  // Null-terminate current input
 				
 				char completion[100];
+				int has_completion = 0;
 				
 				if (pos > 0 && strncmp(input, "exit", pos) == 0 && pos < 4) {
 					strcpy(completion, "exit ");
+					has_completion = 1;
 				} else if (pos > 0 && strncmp(input, "echo", pos) == 0 && pos < 4) {
 					strcpy(completion, "echo ");
+					has_completion = 1;
 				} else if (pos > 0 && strncmp(input, "cd", pos) == 0 && pos < 2) {
 					strcpy(completion, "cd ");
+					has_completion = 1;
 				} else if (pos > 0 && strncmp(input, "pwd", pos) == 0 && pos < 3) {
 					strcpy(completion, "pwd ");
+					has_completion = 1;
 				} else if (pos > 0 && strncmp(input, "type", pos) == 0 && pos < 4) {
 					strcpy(completion, "type ");
+					has_completion = 1;
 				} else {
 					int completions_count = 0;
 					FileResult *completions = find_executables_with_prefix(input, &completions_count);
-					if (completions_count > 0) {
+					
+					if (completions_count == 0) {
+						write(STDOUT_FILENO, "\x07", 1);
+					} else if (completions_count == 1) {
 						strcpy(completion, completions[0].name);
 						strcat(completion, " ");
-					} else {
-						write(STDOUT_FILENO, "\x07", 1);
+						tab_count = 0;
+						has_completion = 1;
+					} else if (completions_count > 1) {
+						if (tab_count == 0) {
+							write(STDOUT_FILENO, "\x07", 1);
+							tab_count = 1;
+						} else if (tab_count == 1) {
+							write(STDOUT_FILENO, "\n", 1);
+							for (int i = 0; i < completions_count; ++i) {
+								if (i != 0)
+									write(STDOUT_FILENO, "  ", 2);
+								write(STDOUT_FILENO, completions[i].name, strlen(completions[i].name));
+							}
+							write(STDOUT_FILENO, "\n$ ", 3);
+							write(STDOUT_FILENO, input, pos);
+							tab_count = 0;
+						}
 					}
+
+					// if (completions) {
+					// 	free(completions);
+        	// }
 				}
 				
-				if (completion) {
+				if (has_completion) {
 					const char *rest = completion + pos;
 					write(STDOUT_FILENO, rest, strlen(rest));
 					

@@ -75,14 +75,22 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 							char full_path[PATH_MAX];
 							snprintf(full_path, sizeof(full_path), "%s/%s", dir, entry->d_name);
 							if (access(full_path, X_OK) == 0) {
+								int is_duplicate = 0;
+								for (int i = 0; i < *count; i++) {
+									if (strcmp(matches[i].name, entry->d_name) == 0) {
+										is_duplicate = 1;
+										break;
+									}
+								}
+								if (is_duplicate) continue;
+
 								// Expand array if needed
 								if (*count >= capacity) {
 									capacity *= 2;
 									FileResult *new_matches = realloc(matches, capacity * sizeof(FileResult));
 									if (!new_matches) {
 										for (int i = 0; i < *count; i++) {
-											free(matches[i].name);
-											free(matches[i].path);
+											free(matches);
 										}
 										free(matches);
 										closedir(d);
@@ -92,11 +100,10 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 									matches = new_matches;
 								}
 
-								// TODO: make sure to clean this up + make sure strcpy is good/use strncpy instead.
-								const char *name = strdup(entry->d_name);
-								const char *path = strdup(full_path);
-								strcpy(matches[(*count)++].name, name);
-								strcpy(matches[(*count)++].path, path);
+								// TODO: make sure strcpy is good/use strncpy instead.
+								strcpy(matches[*count].name, entry->d_name);
+								strcpy(matches[*count].path, full_path);
+								++*count;
 							}
 						}
 					}
@@ -107,5 +114,16 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 	}
 
 	free(path_copy);
+
+	for (int i = 0; i < *count - 1; i++) {
+		for (int j = i + 1; j < *count; j++) {
+			if (strcmp(matches[i].name, matches[j].name) > 0) {
+				FileResult temp = matches[i];
+				matches[i] = matches[j];
+				matches[j] = temp;
+			}
+		}
+	}
+
 	return matches;
 }
