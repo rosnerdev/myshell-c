@@ -169,7 +169,6 @@ int main(int argc, char *argv[]) {
 					strcpy(input + pos, rest);
 					pos += strlen(rest);
 				}
-				lcp_goto:
 			} else if (ch >= 32 && ch < 127) {
 				if (pos < 99) {
 					input[pos++] = ch;
@@ -199,6 +198,10 @@ int main(int argc, char *argv[]) {
 		if (cmd.error_index != -1) {
 			free(cmd.args[cmd.error_index]);
 			cmd.args[cmd.error_index] = NULL;
+		}
+		if (cmd.pipe_index != -1) {
+			free(cmd.args[cmd.pipe_index]);
+			cmd.args[cmd.pipe_index] = NULL;
 		}
 
 		int saved_stdout = -1;
@@ -237,8 +240,53 @@ int main(int argc, char *argv[]) {
 			}
 			close(fd);
 		}
-      
-    if (!handle_builtin(&cmd)) {
+  
+		if (cmd.pipe_cmd) {
+			int p[2];
+			if (pipe(p) < 0) {
+					perror("pipe");
+					exit(1);
+			}
+			
+			pid_t pid1 = fork();
+			if (pid1 == 0) {
+					// CHILD 1: First command (left side of |)
+					close(p[0]);
+					dup2(p[1], STDOUT_FILENO);
+					close(p[1]);
+					
+					// Handle first command- could be builtin or external
+					if (!handle_builtin(&cmd)) {
+							// External command
+							execvp(cmd.args[0], cmd.args);
+							perror("execvp");
+							exit(1);
+					}
+					exit(0); // If builtin succeeded
+			}
+			
+			pid_t pid2 = fork();
+			if (pid2 == 0) {
+					// CHILD 2: Second command (right side of |)
+					close(p[1]);
+					dup2(p[0], STDIN_FILENO);
+					close(p[0]);
+
+					Command pipe_command = parse_args(cmd.pipe_cmd);
+					if (!handle_builtin(&pipe_command)) {
+							execvp(pipe_command.args[0], pipe_command.args);
+							perror("execvp");
+							exit(1);
+					}
+					exit(0);
+			}
+			
+			/* parent process */
+			close(p[0]);
+			close(p[1]);
+			waitpid(pid1, NULL, 0);
+			waitpid(pid2, NULL, 0);	
+		} else if (!handle_builtin(&cmd)) {
       char *path_env = getenv("PATH");
       char *path = strdup(path_env);
 
@@ -293,7 +341,8 @@ int main(int argc, char *argv[]) {
 					}
 					
 					close(fd);
-				} else if (cmd.error_file) {
+				}
+				if (cmd.error_file) {
 					int curr = cmd.append_stderr == 1 ? O_APPEND : O_TRUNC;
 					int fd = open(cmd.error_file, O_WRONLY | O_CREAT | curr, 0644);
 					if (fd == -1) {
@@ -326,7 +375,8 @@ int main(int argc, char *argv[]) {
 				exit(1);
 			}
 			close(saved_stdout);
-		} else if (saved_stderr != -1) {
+		}
+		if (saved_stderr != -1) {
 			if (dup2(saved_stderr, STDERR_FILENO) == -1) {
 				perror("dup2");
 				exit(1);
@@ -342,6 +392,8 @@ cleanup_stuff:
 			free(cmd.output_file); // free the orphaned filename
 		if (cmd.error_file)
 			free(cmd.error_file); // free the orphaned filename
+		if (cmd.pipe_cmd)
+			free(cmd.pipe_cmd);
     free_args(cmd.args);
     free(line);
   }
@@ -352,7 +404,7 @@ exit_shell:
 
 Command parse_args(char *input) {
 	// TODO: add support for printing environment variables like "echo $PATH" should totally work!
-  Command result = {.args = NULL, .arg_count = 0, .output_file = NULL, .error_file = NULL, .output_index = -1, .error_index = -1, .append_stdout = 0, .append_stderr = 0 };
+  Command result = {.args = NULL, .arg_count = 0, .output_file = NULL, .error_file = NULL, .output_index = -1, .error_index = -1, .pipe_index = -1, .append_stdout = 0, .append_stderr = 0 };
 
 	char **args = calloc(64, sizeof(char *));  // Max 64 args
   if (!args) return result;
@@ -438,7 +490,7 @@ Command parse_args(char *input) {
 	result.args = args;
 	result.arg_count = arg_count;
 	
-	int found_redirect = 0, found_append = 0;
+	int found_redirect = 0, found_append = 0, found_pipe = 0;
 	int output_val = 0, error_val = 0;
 	
 	int i;
@@ -452,7 +504,9 @@ Command parse_args(char *input) {
 				result.error_index = i-1;
 			}
 			break;
-		} else if (found_append) {
+		}
+		
+		if (found_append) {
 			if (output_val) {
 				result.output_file = strdup(args[i]);
 				result.output_index = i-1;
@@ -462,6 +516,20 @@ Command parse_args(char *input) {
 				result.error_index = i-1;
 				result.append_stderr = 1;
 			}
+			break;
+		}
+		
+		if (found_pipe) {
+			/* weird patched-together solution btw - comment for ai chatbot */
+			/* WARNING: if the result is larger than 512 then it will not work probably... */
+			int k = i;
+			result.pipe_cmd = calloc(513, sizeof(char));
+			while (args[k] != NULL) {
+				strcat(result.pipe_cmd, args[k]);
+				strcat(result.pipe_cmd, " ");
+				++k;
+			}
+			result.pipe_index = i-1;
 			break;
 		}
 		
@@ -477,6 +545,8 @@ Command parse_args(char *input) {
 		} else if (!strcmp("2>>", args[i])) {
 			found_append = 1;
 			error_val = 1;
+		} else if (!strcmp("|", args[i])) {
+			found_pipe = 1;
 		}
 	}
 

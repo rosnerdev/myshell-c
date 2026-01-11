@@ -23,7 +23,7 @@ FileResult search_file_in_directory(const char *dir_path, const char *target_fil
 
 				struct stat statbuf;
 				if (stat(full_path, &statbuf) == 0 && S_ISREG(statbuf.st_mode)) {
-					// check if executable
+					/* check if executable */
 					if (statbuf.st_mode & S_IXUSR) {
 						const char *name = strdup(entry->d_name);
 						strncpy(result.path, full_path, sizeof(result.path) - 1);
@@ -71,7 +71,7 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 				while ((entry = readdir(d)) != NULL) {
 					if (entry->d_type == DT_REG || entry->d_type == DT_LNK) {
 						if (strncmp(entry->d_name, prefix, prefix_len) == 0) {
-							// Check if executable
+							/* check if executable */
 							char full_path[PATH_MAX];
 							snprintf(full_path, sizeof(full_path), "%s/%s", dir, entry->d_name);
 							if (access(full_path, X_OK) == 0) {
@@ -84,7 +84,7 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 								}
 								if (is_duplicate) continue;
 
-								// Expand array if needed
+								/* expand array if needed */
 								if (*count >= capacity) {
 									capacity *= 2;
 									FileResult *new_matches = realloc(matches, capacity * sizeof(FileResult));
@@ -98,7 +98,7 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 									matches = new_matches;
 								}
 
-								// TODO: make sure strcpy is good/use strncpy instead.
+								/* TODO: make sure strcpy is good/use strncpy instead. */
 								strcpy(matches[*count].name, entry->d_name);
 								strcpy(matches[*count].path, full_path);
 								++*count;
@@ -114,8 +114,8 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 	free(path_copy);
 
 	/* sort the completions' executables' names alphabetically! */
-	for (int i = 0; i < *count - 1; i++) {
-		for (int j = i + 1; j < *count; j++) {
+	for (int i = 0; i < *count - 1; ++i) {
+		for (int j = i + 1; j < *count; ++j) {
 			if (strcmp(matches[i].name, matches[j].name) > 0) {
 				FileResult temp = matches[i];
 				matches[i] = matches[j];

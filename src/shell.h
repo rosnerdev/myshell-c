@@ -7,10 +7,12 @@ typedef struct {
     char *input_file;     // For < redirection (future)
     char *output_file;    
     char *error_file;     
+    char *pipe_cmd;
     int output_index;
     int error_index;
     int append_stdout;    // Boolean: 1 for 1>>, 0 for >>
     int append_stderr;    // Boolean: 1 for 2>>, 0 for >>
+    int pipe_index;
 } Command;
 
 // Function Prototypes: The "Jobs" each module will do
