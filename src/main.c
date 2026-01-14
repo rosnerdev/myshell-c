@@ -158,7 +158,6 @@ int main(int argc, char *argv[]) {
 						}
 					}
 
-					/* free(completions) */
 					if (completions) free(completions);
 				}
 				
@@ -191,16 +190,16 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
+		// this entire branch needs some kind of replacement due to it being problematic if there's nothing being redirected nor being piped...!
 		if (cmd.output_index != -1) {
 			free(cmd.args[cmd.output_index]);
 			cmd.args[cmd.output_index] = NULL;
-		}
-		if (cmd.error_index != -1) {
+		} else if (cmd.error_index != -1) {
 			free(cmd.args[cmd.error_index]);
 			cmd.args[cmd.error_index] = NULL;
-		}
-		if (cmd.pipe_index != -1) {
-			free(cmd.args[cmd.pipe_index]);
+		} else if (cmd.pipe_index != -1) {
+			// so basically when doing a regular command that doesn't pipe nor redirects, it goes here and creates a double free and/or segfault!!!
+			free(cmd.args[cmd.pipe_index]); 
 			cmd.args[cmd.pipe_index] = NULL;
 		}
 
@@ -255,14 +254,14 @@ int main(int argc, char *argv[]) {
 					dup2(p[1], STDOUT_FILENO);
 					close(p[1]);
 					
-					// Handle first command- could be builtin or external
+					// handle first command: could be builtin or external
 					if (!handle_builtin(&cmd)) {
-							// External command
+							// external command
 							execvp(cmd.args[0], cmd.args);
-							perror("execvp");
+							perror("left_pipe"); // debug error msg for now
 							exit(1);
 					}
-					exit(0); // If builtin succeeded
+					exit(0); // if builtin succeeded
 			}
 			
 			pid_t pid2 = fork();
@@ -275,7 +274,7 @@ int main(int argc, char *argv[]) {
 					Command pipe_command = parse_args(cmd.pipe_cmd);
 					if (!handle_builtin(&pipe_command)) {
 							execvp(pipe_command.args[0], pipe_command.args);
-							perror("execvp");
+							perror("right_pipe");
 							exit(1);
 					}
 					exit(0);
@@ -287,34 +286,6 @@ int main(int argc, char *argv[]) {
 			waitpid(pid1, NULL, 0);
 			waitpid(pid2, NULL, 0);	
 		} else if (!handle_builtin(&cmd)) {
-      char *path_env = getenv("PATH");
-      char *path = strdup(path_env);
-
-      int not_found_path = 0;
-
-      if (path_env != NULL) {
-        char *path_tok_saveptr;
-        char *tok = strtok_r(path, ":", &path_tok_saveptr);
-        while (tok != NULL) {
-          FileResult result = search_file_in_directory(tok, cmd.args[0]);
-          if (result.exists) {
-            break;
-          }
-          
-          tok = strtok_r(NULL, ":", &path_tok_saveptr);
-          if (tok == NULL) {
-            not_found_path = 1;
-            break;
-          }
-        }
-      } else {
-        not_found_path = 1;
-      }
-      free(path);
-
-      if (not_found_path)
-        goto command_not_found;
-        
       pid_t pid = fork();
     
       if (pid < 0) {
@@ -359,8 +330,9 @@ int main(int argc, char *argv[]) {
 					close(fd);
 				}
 				execvp(cmd.args[0], cmd.args);
-				// If execvp returns, it failed
-				perror("execvp");
+				// if execvp returns, it failed
+				goto command_not_found;
+
 				exit(1);
       } else {
 				// Parent process
@@ -533,17 +505,17 @@ Command parse_args(char *input) {
 			break;
 		}
 		
-		if (!strcmp(">", args[i]) || !strcmp("1>", args[i])) {
-			found_redirect = 1;
-			output_val = 1;
-		} else if (!strcmp("2>", args[i])) {
-			found_redirect = 1;
-			error_val = 1;
-		} else if (!strcmp("1>>", args[i]) || !strcmp(">>", args[i])) {
+		 if (!strcmp("1>>", args[i]) || !strcmp(">>", args[i])) {
 			found_append = 1;
 			output_val = 1;
 		} else if (!strcmp("2>>", args[i])) {
 			found_append = 1;
+			error_val = 1;
+		} else if (!strcmp(">", args[i]) || !strcmp("1>", args[i])) {
+			found_redirect = 1;
+			output_val = 1;
+		} else if (!strcmp("2>", args[i])) {
+			found_redirect = 1;
 			error_val = 1;
 		} else if (!strcmp("|", args[i])) {
 			found_pipe = 1;

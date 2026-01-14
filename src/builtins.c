@@ -57,21 +57,22 @@ int handle_builtin(Command *cmd) {
             } else {
                 char *path_env = getenv("PATH");
                 char *path = strdup(path_env);
+                int found = 0;
 
                 if (path_env != NULL) {
                     char *tok = strtok(path, ":");
                     while (tok != NULL) {
-                    FileResult result = search_file_in_directory(tok, cmd->args[i]);
-
-                    if (result.exists) {
-                        printf("%s is %s\n", cmd->args[i], result.path);
-                        break;
+                        char fullpath[1024];
+                        snprintf(fullpath, sizeof(fullpath), "%s/%s", tok, cmd->args[i]);
+                        if (access(fullpath, X_OK) == 0) {
+                            printf("%s is %s\n", cmd->args[i], fullpath);
+                            found = 1;
+                            break;
+                        }
+                        tok = strtok(NULL, ":");
                     }
-
-                    tok = strtok(NULL, ":");                    
-                    if (tok == NULL)
+                    if (!found)
                         printf("%s: not found\n", cmd->args[i]);
-                    }
                 } else {
                     printf("%s: not found\n", cmd->args[i]);
                 }

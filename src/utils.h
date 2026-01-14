@@ -7,7 +7,6 @@ typedef struct {
   int exists;
 } FileResult;
 
-FileResult search_file_in_directory(const char *dir_path, const char *target_filename);
 FileResult *find_executables_with_prefix(const char *prefix, int *count);
 
 #endif

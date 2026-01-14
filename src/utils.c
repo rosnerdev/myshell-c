@@ -7,41 +7,6 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-FileResult search_file_in_directory(const char *dir_path, const char *target_filename) {
-    FileResult result = {{0}, {0}, 0};
-    
-    DIR *dir = opendir(dir_path);
-    if (!dir) {
-			return result;
-    }
-
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-			if (strcmp(entry->d_name, target_filename) == 0) {
-				char full_path[1024];
-				snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
-
-				struct stat statbuf;
-				if (stat(full_path, &statbuf) == 0 && S_ISREG(statbuf.st_mode)) {
-					/* check if executable */
-					if (statbuf.st_mode & S_IXUSR) {
-						const char *name = strdup(entry->d_name);
-						strncpy(result.path, full_path, sizeof(result.path) - 1);
-						result.path[sizeof(result.path) - 1] = '\0';
-						strncpy(result.name, name, sizeof(result.name) - 1);
-						result.name[sizeof(result.name) - 1] = '\0';
-						result.exists = 1;
-						closedir(dir);
-						return result;
-					}
-				}
-			}
-    }
-
-    closedir(dir);
-    return result;
-}
-
 FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 	*count = 0;
 	FileResult *matches;
