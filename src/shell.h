@@ -17,8 +17,10 @@ typedef struct {
 
 // Function Prototypes: The "Jobs" each module will do
 Command* parse_input(char *line);
-void execute_command(Command *cmd);
-void free_command(Command *cmd);
+
+// These two are not implemented yet...
+// void execute_command(Command *cmd);
+// void free_command(Command *cmd);
 
 // Built-in checks
 int handle_builtin(Command *cmd);

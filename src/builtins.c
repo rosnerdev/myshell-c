@@ -10,11 +10,11 @@ int handle_builtin(Command *cmd) {
     if (cmd->args == NULL || cmd->args[0] == NULL) {
         return 0;
     }
-
+    
     if (!strcmp(cmd->args[0], "exit")) {
-        // TODO: maybe add logic here to free memory before exiting-not too sure though
         exit(0);
     } 
+
     
     if (!strcmp(cmd->args[0], "cd")) {
         if (cmd->arg_count < 2) {

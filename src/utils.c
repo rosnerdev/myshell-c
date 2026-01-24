@@ -37,9 +37,9 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 					if (entry->d_type == DT_REG || entry->d_type == DT_LNK) {
 						if (strncmp(entry->d_name, prefix, prefix_len) == 0) {
 							/* check if executable */
-							char full_path[PATH_MAX];
-							snprintf(full_path, sizeof(full_path), "%s/%s", dir, entry->d_name);
-							if (access(full_path, X_OK) == 0) {
+							char fullpath[PATH_MAX];
+							snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, entry->d_name);
+							if (access(fullpath, X_OK) == 0) {
 								int is_duplicate = 0;
 								for (int i = 0; i < *count; i++) {
 									if (strcmp(matches[i].name, entry->d_name) == 0) {
@@ -65,7 +65,7 @@ FileResult *find_executables_with_prefix(const char *prefix, int *count) {
 
 								/* TODO: make sure strcpy is good/use strncpy instead. */
 								strcpy(matches[*count].name, entry->d_name);
-								strcpy(matches[*count].path, full_path);
+								strcpy(matches[*count].path, fullpath);
 								++*count;
 							}
 						}

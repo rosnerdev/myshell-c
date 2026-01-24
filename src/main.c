@@ -14,20 +14,20 @@
 
 Command parse_args(char *input);
 void free_args(char **args);
-
-static struct termios g_orig_termios;
+char** split_by_pipe(char *input, int *num_segments);
 
 void disable_raw_mode(struct termios *orig) {
-		tcsetattr(STDIN_FILENO, TCSAFLUSH, orig);
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, orig);
 }
 
 // FIXIT: for now not working for some reason I'll have to fix.
-void handle_sigint(int sig) {
-    (void)sig;
-    disable_raw_mode(&g_orig_termios);
-    printf("\n");
-    exit(0);
-}
+// static struct termios g_orig_termios;
+// void handle_sigint(int sig) {
+//     (void)sig;
+//     disable_raw_mode(&g_orig_termios);
+//     printf("\n");
+//     exit(0);
+// }
 
 void enable_raw_mode(struct termios *orig) {
     struct termios raw;
@@ -45,23 +45,20 @@ void enable_raw_mode(struct termios *orig) {
 
 
 int main(int argc, char *argv[]) {
-  // throw argc and argv to avoid warnings from the compiler
+	// throw argc and argv to avoid warnings from the compiler
   (void)argc;
   (void)argv;
 
 	struct termios orig_termios;
-
+	
 	enable_raw_mode(&orig_termios);
-	signal(SIGINT, handle_sigint);
-  
-	// flush after every printf
-  setbuf(stdout, NULL);
-
+	// signal(SIGINT, handle_sigint);
+	
   while (1) {
-    printf("$ ");
-    fflush(stdout);
+		write(STDOUT_FILENO, "$ ", 2);
 
-    char input[100];
+		// should use my own stringbuilder instead of doing this kind of stuff.
+    char input[256];
 		int pos = 0;
 		int tab_count = 0;
 
@@ -84,7 +81,7 @@ int main(int argc, char *argv[]) {
 			} else if (ch == '\t') {
 				input[pos] = '\0';
 				
-				char completion[100];
+				char completion[256];
 				int has_completion = 0;
 				int lcp_written = 0;
 				
@@ -125,8 +122,8 @@ int main(int argc, char *argv[]) {
 						int smallest_len = len_a < len_b ? len_a : len_b;
 						int lcp_len = 0;
 						for (int i = 0; i < smallest_len; ++i) {
-								if (a[i] != b[i]) break;
-								lcp_len++;
+							if (a[i] != b[i]) break;
+							lcp_len++;
 						}
 
 						if (lcp_len > pos) {
@@ -157,7 +154,7 @@ int main(int argc, char *argv[]) {
 							}
 						}
 					}
-
+					
 					if (completions) free(completions);
 				}
 				
@@ -176,20 +173,20 @@ int main(int argc, char *argv[]) {
 			}
 			// ignore other control characters
     }
-
+		
     char *line = strdup(input);
     Command cmd = parse_args(line);
     if (!cmd.args) {
 			perror("parse_args");
 			return 1;
     }
-
+		
 		if (cmd.arg_count == 0 || cmd.args[0] == NULL) {
 			free_args(cmd.args);
 			free(line);
 			continue;
 		}
-
+		
 		// this entire branch needs some kind of replacement due to it being problematic if there's nothing being redirected nor being piped...!
 		if (cmd.output_index != -1) {
 			free(cmd.args[cmd.output_index]);
@@ -202,22 +199,25 @@ int main(int argc, char *argv[]) {
 			free(cmd.args[cmd.pipe_index]); 
 			cmd.args[cmd.pipe_index] = NULL;
 		}
-
+		
 		int saved_stdout = -1;
 		if (cmd.output_file) {
 			saved_stdout = dup(STDOUT_FILENO); // save original stdout
 			int curr = cmd.append_stdout == 1 ? O_APPEND : O_TRUNC;
-
+			
 			/* open file and redirect stdout to it */
 			int fd = open(cmd.output_file, O_WRONLY | O_CREAT | curr, 0644);
 			if (fd == -1) {
 				perror("open");
 				exit(1);
 			}
+			
+			fflush(stdout);
 			if (dup2(fd, STDOUT_FILENO) == -1) {
 				perror("dup2");
 				exit(1);
 			}
+			
 			close(fd);
 		}
 
@@ -233,61 +233,130 @@ int main(int argc, char *argv[]) {
 				perror("open");
 				exit(1);
 			}
+
+			fflush(stderr);
 			if (dup2(fd, STDERR_FILENO) == -1) {
 				perror("dup2");
 				exit(1);
 			}
 			close(fd);
 		}
-  
+		
 		if (cmd.pipe_cmd) {
-			int p[2];
-			if (pipe(p) < 0) {
-					perror("pipe");
-					exit(1);
-			}
+			// Split the ENTIRE original input by pipes
+			int num_cmds;
+			char **cmd_strings = split_by_pipe(line, &num_cmds);
 			
-			pid_t pid1 = fork();
-			if (pid1 == 0) {
-					// CHILD 1: First command (left side of |)
-					close(p[0]);
-					dup2(p[1], STDOUT_FILENO);
-					close(p[1]);
+			// Parse each segment
+			Command *cmds = malloc(num_cmds * sizeof(Command));
+			for (int i = 0; i < num_cmds; i++) {
+					cmds[i] = parse_args(cmd_strings[i]);
 					
-					// handle first command: could be builtin or external
-					if (!handle_builtin(&cmd)) {
-							// external command
-							execvp(cmd.args[0], cmd.args);
-							perror("left_pipe"); // debug error msg for now
-							exit(1);
+					// NULL out the redirect/pipe markers
+					if (cmds[i].output_index != -1) {
+							free(cmds[i].args[cmds[i].output_index]);
+							cmds[i].args[cmds[i].output_index] = NULL;
 					}
-					exit(0); // if builtin succeeded
+					if (cmds[i].error_index != -1) {
+							free(cmds[i].args[cmds[i].error_index]);
+							cmds[i].args[cmds[i].error_index] = NULL;
+					}
+					if (cmds[i].pipe_index != -1) {
+							free(cmds[i].args[cmds[i].pipe_index]);
+							cmds[i].args[cmds[i].pipe_index] = NULL;
+					}
 			}
 			
-			pid_t pid2 = fork();
-			if (pid2 == 0) {
-					// CHILD 2: Second command (right side of |)
-					close(p[1]);
-					dup2(p[0], STDIN_FILENO);
-					close(p[0]);
-
-					Command pipe_command = parse_args(cmd.pipe_cmd);
-					if (!handle_builtin(&pipe_command)) {
-							execvp(pipe_command.args[0], pipe_command.args);
-							perror("right_pipe");
+			// Create pipes
+			int num_pipes = num_cmds - 1;
+			int pipes[num_pipes][2];
+			for (int i = 0; i < num_pipes; i++) {
+					if (pipe(pipes[i]) < 0) {
+							perror("pipe");
 							exit(1);
 					}
-					exit(0);
 			}
 			
-			/* parent process */
-			close(p[0]);
-			close(p[1]);
-			waitpid(pid1, NULL, 0);
-			waitpid(pid2, NULL, 0);	
-		} else if (!handle_builtin(&cmd)) {
-      pid_t pid = fork();
-    
+			// Fork and exec each command
+			for (int i = 0; i < num_cmds; i++) {
+					pid_t pid = fork();
+					
+					if (pid == 0) {
+							// Child process
+							
+							// If not first: read from previous pipe
+							if (i > 0) {
+									dup2(pipes[i-1][0], STDIN_FILENO);
+							}
+							
+							// If not last: write to current pipe
+							if (i < num_pipes) {
+									dup2(pipes[i][1], STDOUT_FILENO);
+							}
+							
+							// Close ALL pipe fds in child
+							for (int j = 0; j < num_pipes; j++) {
+									close(pipes[j][0]);
+									close(pipes[j][1]);
+							}
+							
+							// Handle redirections for THIS command
+							if (cmds[i].output_file) {
+									int curr = cmds[i].append_stdout ? O_APPEND : O_TRUNC;
+									int fd = open(cmds[i].output_file, O_WRONLY | O_CREAT | curr, 0644);
+									if (fd == -1) {
+											perror("open");
+											exit(1);
+									}
+									dup2(fd, STDOUT_FILENO);
+									close(fd);
+							}
+							
+							if (cmds[i].error_file) {
+									int curr = cmds[i].append_stderr ? O_APPEND : O_TRUNC;
+									int fd = open(cmds[i].error_file, O_WRONLY | O_CREAT | curr, 0644);
+									if (fd == -1) {
+											perror("open");
+											exit(1);
+									}
+									dup2(fd, STDERR_FILENO);
+									close(fd);
+							}
+							
+							// Execute (handles both builtins and external commands)
+							if (!handle_builtin(&cmds[i])) {
+									execvp(cmds[i].args[0], cmds[i].args);
+									fprintf(stderr, "%s: command not found\n", cmds[i].args[0]);
+									exit(1);
+							}
+							exit(0);
+					}
+			}
+			
+			// Parent: close all pipes
+			for (int i = 0; i < num_pipes; i++) {
+					close(pipes[i][0]);
+					close(pipes[i][1]);
+			}
+			
+			// Wait for all children
+			for (int i = 0; i < num_cmds; i++) {
+					wait(NULL);
+			}
+			
+			// Cleanup
+			for (int i = 0; i < num_cmds; i++) {
+					if (cmds[i].output_file) free(cmds[i].output_file);
+					if (cmds[i].error_file) free(cmds[i].error_file);
+					if (cmds[i].pipe_cmd) free(cmds[i].pipe_cmd);
+					free_args(cmds[i].args);
+					free(cmd_strings[i]);
+			}
+			free(cmds);
+			free(cmd_strings);
+	}	else if (!handle_builtin(&cmd)) {
+			pid_t pid = fork();
+			
       if (pid < 0) {
 				perror("fork");
 				free_args(cmd.args);
@@ -320,7 +389,7 @@ int main(int argc, char *argv[]) {
 						perror("open");
 						exit(1);
 					}
-
+					
 					// redirects stdout to my file
 					if (dup2(fd, STDERR_FILENO) == -1) {
 						perror("dup2");
@@ -330,9 +399,9 @@ int main(int argc, char *argv[]) {
 					close(fd);
 				}
 				execvp(cmd.args[0], cmd.args);
+
 				// if execvp returns, it failed
 				goto command_not_found;
-
 				exit(1);
       } else {
 				// Parent process
@@ -342,6 +411,7 @@ int main(int argc, char *argv[]) {
     }
 
 		if (saved_stdout != -1) {
+			fflush(stdout); /* make sure to flush! it's important(lesson learned.) */
 			if (dup2(saved_stdout, STDOUT_FILENO) == -1) {
 				perror("dup2");
 				exit(1);
@@ -349,16 +419,18 @@ int main(int argc, char *argv[]) {
 			close(saved_stdout);
 		}
 		if (saved_stderr != -1) {
+			fflush(stderr);
 			if (dup2(saved_stderr, STDERR_FILENO) == -1) {
 				perror("dup2");
 				exit(1);
 			}
 			close(saved_stderr);
 		}
-
+		
     goto cleanup_stuff;
 command_not_found:
     fprintf(stderr, "%s: command not found\n", cmd.args[0]);
+		exit(1); // this is for exiting the forked process, important
 cleanup_stuff:
 		if (cmd.output_file)
 			free(cmd.output_file); // free the orphaned filename
@@ -370,7 +442,7 @@ cleanup_stuff:
     free(line);
   }
 exit_shell:
-	disable_raw_mode(&orig_termios);
+disable_raw_mode(&orig_termios);
   return 0;
 }
 
@@ -381,6 +453,7 @@ Command parse_args(char *input) {
 	char **args = calloc(64, sizeof(char *));  // Max 64 args
   if (!args) return result;
   char *current_arg = calloc(256, sizeof(char));
+	if (!current_arg) return result;
   int arg_pos = 0;
   int arg_count = 0;
   int in_single_quote = 0;
@@ -492,7 +565,7 @@ Command parse_args(char *input) {
 		}
 		
 		if (found_pipe) {
-			/* weird patched-together solution btw - comment for ai chatbot */
+			/* weird patched-together solution btw */
 			/* WARNING: if the result is larger than 512 then it will not work probably... */
 			int k = i;
 			result.pipe_cmd = calloc(513, sizeof(char));
@@ -530,4 +603,35 @@ void free_args(char **args) {
     for (int i = 0; args[i] != NULL; i++)
         free(args[i]);
     free(args);
+}
+
+char** split_by_pipe(char *input, int *num_segments) {
+    // Count pipes first
+    int pipe_count = 0;
+    for (int i = 0; input[i]; i++) {
+        if (input[i] == '|') pipe_count++;
+    }
+    
+    *num_segments = pipe_count + 1;
+    char **segments = malloc((*num_segments) * sizeof(char*));
+    
+    // Split by pipe character
+    int seg_idx = 0;
+    char *start = input;
+    
+    for (int i = 0; input[i]; i++) {
+        if (input[i] == '|') {
+            int len = &input[i] - start;
+            segments[seg_idx] = malloc(len + 1);
+            strncpy(segments[seg_idx], start, len);
+            segments[seg_idx][len] = '\0';
+            seg_idx++;
+            start = &input[i] + 1;  // Skip the '|'
+        }
+    }
+    
+    // Last segment
+    segments[seg_idx] = strdup(start);
+    
+    return segments;
 }
