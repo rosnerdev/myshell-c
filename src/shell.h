@@ -1,22 +1,23 @@
 #ifndef SHELL_H
 #define SHELL_H
 
-typedef struct {
-    char **args;          // The command and its arguments
+typedef struct
+{
+    char **args; // The command and its arguments
     int arg_count;
-    char *input_file;     // For < redirection (future)
-    char *output_file;    
-    char *error_file;     
+    char *input_file; // For < redirection (future)
+    char *output_file;
+    char *error_file;
     char *pipe_cmd;
     int output_index;
     int error_index;
-    int append_stdout;    // Boolean: 1 for 1>>, 0 for >>
-    int append_stderr;    // Boolean: 1 for 2>>, 0 for >>
+    int append_stdout; // Boolean: 1 for 1>>, 0 for >>
+    int append_stderr; // Boolean: 1 for 2>>, 0 for >>
     int pipe_index;
 } Command;
 
 // Function Prototypes: The "Jobs" each module will do
-Command* parse_input(char *line);
+Command *parse_input(char *line);
 
 // These two are not implemented yet...
 // void execute_command(Command *cmd);

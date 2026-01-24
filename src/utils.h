@@ -1,7 +1,8 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-typedef struct {
+typedef struct
+{
   char name[256];
   char path[1024];
   int exists;
