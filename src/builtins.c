@@ -6,17 +6,28 @@
 #include <unistd.h>
 #include <limits.h>
 
-static void print_history(char **hist_list)
+static void print_history(char **hist_list, int n)
 {
-    for (int i = 0; hist_list[i] != NULL; ++i)
+    if (n == -1)
     {
-        printf("\t%d %s\n", i + 1, hist_list[i]);
+        for (int i = 0; hist_list[i] != NULL; ++i)
+        {
+            printf("\t%d %s\n", i + 1, hist_list[i]);
+        }
+        return;
+    }
+
+    int count, first_one = 0;
+    for (count = 0; hist_list[count] != NULL; ++count)
+        ;
+
+    first_one = count - n;
+    for (; first_one < count; ++first_one)
+    {
+        printf("\t%d %s\n", first_one + 1, hist_list[first_one]);
     }
 }
 
-// TODO: add support for - history(first before all of the others, others are
-// optional for now), alias, unalias, export, pushd, popd(dirs later, other
-// stuff later on the line probably.)
 int handle_builtin(Command *cmd, char **hist_list)
 {
     if (cmd->args == NULL || cmd->args[0] == NULL)
@@ -31,7 +42,13 @@ int handle_builtin(Command *cmd, char **hist_list)
 
     if (!strcmp(cmd->args[0], "history"))
     {
-        print_history(hist_list);
+        int n = -1;
+        if (cmd->args[1] != NULL && sscanf(cmd->args[1], "%d", &n) != 1)
+        {
+            printf("woah there\n");
+        }
+        else
+            print_history(hist_list, n);
         return 1;
     }
 
