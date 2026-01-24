@@ -4,11 +4,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#define __USE_MISC // for dirent macros
 #include <dirent.h>
 #include <sys/stat.h>
-
-#define PATH_MAX 1024
 
 FileResult *find_executables_with_prefix(const char *prefix, int *count)
 {

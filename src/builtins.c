@@ -4,11 +4,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
+
+static void print_history(char **hist_list)
+{
+    for (int i = 0; hist_list[i] != NULL; ++i)
+    {
+        printf("\t%d %s\n", i + 1, hist_list[i]);
+    }
+}
 
 // TODO: add support for - history(first before all of the others, others are
 // optional for now), alias, unalias, export, pushd, popd(dirs later, other
 // stuff later on the line probably.)
-int handle_builtin(Command *cmd)
+int handle_builtin(Command *cmd, char **hist_list)
 {
     if (cmd->args == NULL || cmd->args[0] == NULL)
     {
@@ -18,6 +27,12 @@ int handle_builtin(Command *cmd)
     if (!strcmp(cmd->args[0], "exit"))
     {
         exit(0);
+    }
+
+    if (!strcmp(cmd->args[0], "history"))
+    {
+        print_history(hist_list);
+        return 1;
     }
 
     if (!strcmp(cmd->args[0], "cd"))
@@ -70,7 +85,7 @@ int handle_builtin(Command *cmd)
         {
             if (!strcmp(cmd->args[i], "exit") || !strcmp(cmd->args[i], "echo") ||
                 !strcmp(cmd->args[i], "type") || !strcmp(cmd->args[i], "pwd") ||
-                !strcmp(cmd->args[i], "cd"))
+                !strcmp(cmd->args[i], "cd") || !strcmp(cmd->args[i], "history"))
             {
                 printf("%s is a shell builtin\n", cmd->args[i]);
             }
@@ -85,7 +100,7 @@ int handle_builtin(Command *cmd)
                     char *tok = strtok(path, ":");
                     while (tok != NULL)
                     {
-                        char fullpath[1024];
+                        char fullpath[PATH_MAX];
                         snprintf(fullpath, sizeof(fullpath), "%s/%s", tok, cmd->args[i]);
                         if (access(fullpath, X_OK) == 0)
                         {

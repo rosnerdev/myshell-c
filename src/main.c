@@ -12,9 +12,9 @@
 #include "shell.h"
 #include "utils.h"
 
-Command parse_args(char *input);
-void free_args(char **args);
-char **split_by_pipe(char *input, int *num_segments);
+Command parse_args(char *);
+void free_args(char **);
+char **split_by_pipe(char *, int *);
 
 void disable_raw_mode(struct termios *orig)
 {
@@ -51,8 +51,10 @@ int main(int argc, char *argv[])
 	(void)argc;
 	(void)argv;
 
-	struct termios orig_termios;
+	char **history_list = calloc(256, sizeof(char *)); // TODO: implement using some kind of suite of functions like append_hist, etc.
+	int history_index = 0;
 
+	struct termios orig_termios;
 	enable_raw_mode(&orig_termios);
 	// signal(SIGINT, handle_sigint);
 
@@ -213,6 +215,11 @@ int main(int argc, char *argv[])
 				}
 			}
 			// ignore other control characters
+		}
+
+		if (history_index < 255)
+		{
+			history_list[history_index++] = strdup(input); // not freeing this for now btw
 		}
 
 		char *line = strdup(input);
@@ -394,7 +401,7 @@ int main(int argc, char *argv[])
 					}
 
 					// Execute (handles both builtins and external commands)
-					if (!handle_builtin(&cmds[i]))
+					if (!handle_builtin(&cmds[i], history_list))
 					{
 						execvp(cmds[i].args[0], cmds[i].args);
 						fprintf(stderr, "%s: command not found\n", cmds[i].args[0]);
@@ -432,7 +439,7 @@ int main(int argc, char *argv[])
 			free(cmds);
 			free(cmd_strings);
 		}
-		else if (!handle_builtin(&cmd))
+		else if (!handle_builtin(&cmd, history_list))
 		{
 			pid_t pid = fork();
 
