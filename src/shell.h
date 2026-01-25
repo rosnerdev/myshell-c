@@ -24,5 +24,5 @@ Command *parse_input(char *);
 // void free_command(Command *cmd);
 
 // Built-in checks
-int handle_builtin(Command *, char **);
+int handle_builtin(Command *, char **, int);
 #endif

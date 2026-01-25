@@ -6,29 +6,28 @@
 #include <unistd.h>
 #include <limits.h>
 
-static void print_history(char **hist_list, int n)
+static void print_history(char **hist_stack, int hist_stack_top, int n)
 {
-    if (n == -1)
+    if (n < -1) return;
+    if (n == -1) // not too sure, for now this'll(-1) be the default value that causes it to not be counted...
     {
-        for (int i = 0; hist_list[i] != NULL; ++i)
+        for (int i = 0; hist_stack[i] != NULL; ++i)
         {
-            printf("\t%d %s\n", i + 1, hist_list[i]);
+            printf("\t%d %s\n", i + 1, hist_stack[i]);
         }
         return;
     }
 
-    int count, first_one = 0;
-    for (count = 0; hist_list[count] != NULL; ++count)
-        ;
-
-    first_one = count - n;
-    for (; first_one < count; ++first_one)
+    for (int i = hist_stack_top - n; i < hist_stack_top; ++i)
     {
-        printf("\t%d %s\n", first_one + 1, hist_list[first_one]);
+        // added this check just to be extra-sure about it
+        if (hist_stack[i] == NULL)
+            break;
+        printf("\t%d %s\n", i + 1, hist_stack[i]);
     }
 }
 
-int handle_builtin(Command *cmd, char **hist_list)
+int handle_builtin(Command *cmd, char **hist_stack, int hist_stack_top)
 {
     if (cmd->args == NULL || cmd->args[0] == NULL)
     {
@@ -45,10 +44,10 @@ int handle_builtin(Command *cmd, char **hist_list)
         int n = -1;
         if (cmd->args[1] != NULL && sscanf(cmd->args[1], "%d", &n) != 1)
         {
-            printf("woah there\n");
+            printf("woah there\n"); //temp debug msg
         }
         else
-            print_history(hist_list, n);
+            print_history(hist_stack, hist_stack_top, n);
         return 1;
     }
 

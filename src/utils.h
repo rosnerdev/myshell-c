@@ -3,6 +3,7 @@
 
 typedef struct
 {
+  // TODO: use macros here, also see if there is a problem with this length being static...
   char name[256];
   char path[1024];
   int exists;

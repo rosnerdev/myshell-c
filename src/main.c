@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
 	(void)argc;
 	(void)argv;
 
-	char **history_list = calloc(256, sizeof(char *)); // TODO: implement using some kind of suite of functions like append_hist, etc.
+	char **history_stack = calloc(256, sizeof(char *)); // TODO: implement using some kind of suite of functions like append_hist, etc.
 	int history_index = 0;
 
 	struct termios orig_termios;
@@ -65,7 +65,10 @@ int main(int argc, char *argv[])
 		// should use my own stringbuilder instead of doing this kind of stuff.
 		char input[256];
 		int pos = 0;
+		int cursor_pos = 0; // TODO: implement cursor_pos actually affecting behavior, for now I'll leave it unimplemented.
 		int tab_count = 0;
+
+		int user_hist_index = history_index;
 
 		// read chars sequentially
 		while (1)
@@ -73,6 +76,77 @@ int main(int argc, char *argv[])
 			char ch;
 			if (read(STDIN_FILENO, &ch, 1) != 1)
 				goto exit_shell;
+
+			if (ch == '\x1b') // ESC sequence
+			{
+				char seq[2];
+				if (read(STDIN_FILENO, &seq[0], 1) != 1)
+					continue;
+				if (read(STDIN_FILENO, &seq[1], 1) != 1)
+					continue;
+
+				if (seq[0] == '[')
+				{
+					switch (seq[1])
+					{
+					case 'A': // Up arrow
+						if (user_hist_index > 0)
+						{
+							for (int i = 0; i < pos; ++i)
+							{
+								write(STDOUT_FILENO, "\b \b", 3);
+							}
+
+							--user_hist_index;
+
+							int hist_elem_len = (int)strlen(history_stack[user_hist_index]);
+							if (hist_elem_len > 255)
+								hist_elem_len = 255;
+
+							strcpy(input, history_stack[user_hist_index]);
+							pos = hist_elem_len;
+
+							printf("%s", input);
+							fflush(stdout);
+						}
+						break;
+					case 'B': // Down arrow
+						if (history_stack[user_hist_index + 1] != NULL && user_hist_index < history_index && history_index < 255)
+						{
+							for (int i = 0; i < pos; ++i)
+							{
+								write(STDOUT_FILENO, "\b \b", 3);
+							}
+
+							++user_hist_index;
+
+							int hist_elem_len = (int)strlen(history_stack[user_hist_index]);
+							if (hist_elem_len > 255)
+								hist_elem_len = 255;
+
+							strcpy(input, history_stack[user_hist_index]);
+							pos = hist_elem_len;
+
+							printf("%s", input);
+							fflush(stdout);
+						}
+						break;
+					case 'C': // Right arrow
+						if (cursor_pos + 1 < 255 && cursor_pos < pos)
+						{
+							++cursor_pos;
+						}
+						break;
+					case 'D': // Left arrow
+						if (cursor_pos > 0)
+						{
+							--cursor_pos;
+						}
+						break;
+					}
+				}
+				continue; // Skip to next iteration after handling arrow keys
+			}
 
 			if (ch == '\r' || ch == '\n')
 			{
@@ -219,7 +293,7 @@ int main(int argc, char *argv[])
 
 		if (history_index < 255)
 		{
-			history_list[history_index++] = strdup(input); // not freeing this for now btw
+			history_stack[history_index++] = strdup(input); // not freeing this for now btw
 		}
 
 		char *line = strdup(input);
@@ -401,7 +475,7 @@ int main(int argc, char *argv[])
 					}
 
 					// Execute (handles both builtins and external commands)
-					if (!handle_builtin(&cmds[i], history_list))
+					if (!handle_builtin(&cmds[i], history_stack, history_index))
 					{
 						execvp(cmds[i].args[0], cmds[i].args);
 						fprintf(stderr, "%s: command not found\n", cmds[i].args[0]);
@@ -439,7 +513,7 @@ int main(int argc, char *argv[])
 			free(cmds);
 			free(cmd_strings);
 		}
-		else if (!handle_builtin(&cmd, history_list))
+		else if (!handle_builtin(&cmd, history_stack, history_index))
 		{
 			pid_t pid = fork();
 
